@@ -33,20 +33,12 @@
     (data[offset+6] << 8) | data[offset+7])
 
 #define WRITE_U32(data, offset, value) \
-    data[offset] = (value >> 24) & 0xFF; \
-    data[offset+1] = (value >> 16) & 0xFF; \
-    data[offset+2] = (value >>  8) & 0xFF; \
-    data[offset+3] = (value >>  0) & 0xFF
+    __asm__("movbe %1, %0" \
+            : "=m" (data[offset]) : "r" ((uint32_t) value))
 
 #define WRITE_U64(data, offset, value) \
-    data[offset] = (value >> 56) & 0xFF; \
-    data[offset+1] = (value >> 48) & 0xFF; \
-    data[offset+2] = (value >> 40) & 0xFF; \
-    data[offset+3] = (value >> 32) & 0xFF; \
-    data[offset+4] = (value >> 24) & 0xFF; \
-    data[offset+5] = (value >> 16) & 0xFF; \
-    data[offset+6] = (value >>  8) & 0xFF; \
-    data[offset+7] = (value >>  0) & 0xFF
+    __asm__("movbe %1, %0" \
+            : "=m" (data[offset]) : "r" ((uint64_t) value))
 
 // Whisper aggregation strategies
 #define WSP_AGG_AVERAGE 1
