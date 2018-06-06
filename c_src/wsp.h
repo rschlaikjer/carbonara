@@ -105,6 +105,15 @@ static ERL_NIF_TERM erl_wsp_get_storage_schema(
 static ERL_NIF_TERM erl_wsp_update(
     ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 );
+static ERL_NIF_TERM erl_wsp_fetch(
+    ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
+);
+
+// Internal methods
+static ERL_NIF_TERM erl_wsp_fetch_archive(
+    ErlNifEnv *env,
+    struct wsp_file *wsp, struct wsp_archive *archive,
+    const uint32_t from_seconds, const uint32_t until_seconds);
 
 // Internal term manipulation
 ERL_NIF_TERM mk_atom(ErlNifEnv* env, const char* atom);
@@ -123,7 +132,9 @@ static ErlNifFunc nif_funcs[] = {
     {"open", 1, erl_wsp_open, 0},
     {"create", 2, erl_wsp_create, 0},
     {"get_storage_schema", 1, erl_wsp_get_storage_schema, 0},
-    {"update", 4, erl_wsp_update, 0}
+    {"update", 4, erl_wsp_update, 0},
+    {"fetch", 3, erl_wsp_fetch, 0},
+    {"fetch", 4, erl_wsp_fetch, 0}
 };
 ERL_NIF_INIT(wsp, nif_funcs, load, NULL, upgrade, unload);
 

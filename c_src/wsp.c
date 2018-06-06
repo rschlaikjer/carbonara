@@ -2,7 +2,6 @@
 
 struct wsp_file* wsp_open_file(const char *filename) {
     // Open the file
-    DLOG("Opening file %s\n", filename);
     int wsp_fd = open(filename, O_RDWR);
     if (wsp_fd < 0) {
         perror("Failed to open whisper file");
@@ -11,7 +10,6 @@ struct wsp_file* wsp_open_file(const char *filename) {
 
     // MMAP it
     off_t wsp_file_size = lseek(wsp_fd, 0, SEEK_END);
-    DLOG("MMAPing file %s\n", filename);
     void *wsp_map = mmap(
         NULL, // System may choose address
         wsp_file_size, // Number of bytes to be initialized from FD
@@ -32,12 +30,6 @@ struct wsp_file* wsp_open_file(const char *filename) {
     result->wsp_fd = wsp_fd;
     result->wsp_size = wsp_file_size;
     parse_header(wsp_map, &result->header);
-    DLOG("Agg type: %d, Max retention: %d, Xff: %f, Archive count: %d\n",
-        result->header.aggregation_type,
-        result->header.max_retention,
-        result->header.xff,
-        result->header.archive_count
-    );
 
     // Alloc archive header info
     result->archives = malloc(
@@ -48,12 +40,6 @@ struct wsp_file* wsp_open_file(const char *filename) {
             wsp_map,
             WSP_HEADER_BYTES + WSP_ARCHIVE_HEADER_BYTES * i,
             result->archives[i]
-        );
-        DLOG("Archive %d: Offset %d, Secs/point: %d, Points: %d\n",
-            i,
-            result->archives[i]->offset,
-            result->archives[i]->seconds_per_point,
-            result->archives[i]->points
         );
     }
 
@@ -225,6 +211,170 @@ static ERL_NIF_TERM erl_wsp_get_storage_schema(
     return enif_make_tuple2(env, mk_atom(env, "ok"), result);
 }
 
+static ERL_NIF_TERM erl_wsp_fetch(
+    ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
+) {
+    // We expect 3-4 args:
+    // - Our stashed wsp file
+    // - The current time in seconds
+    // - Timestamp to get data since
+    // - Optional timestamp to bound data until
+    if(argc != 3 && argc != 4) {
+        return enif_make_badarg(env);
+    }
+
+    // Extract the stashed wsp_file pointer
+    struct priv_data *priv_data = enif_priv_data(env);
+    struct wsp_file** erl_wsp_ptr;
+    if (!enif_get_resource(env, argv[0],
+                           priv_data->wsp_file_resource,
+                           ((void*) (&erl_wsp_ptr)))) {
+        return mk_error(env, "bad_internal_state");
+    }
+    struct wsp_file* wsp = *erl_wsp_ptr;
+
+    // Get the current timestamp
+    unsigned now_seconds;
+    if (!enif_get_uint(env, argv[1], &now_seconds)) {
+        return mk_error(env, "bad_now_timestamp");
+    }
+
+    // Get the from timestamp
+    unsigned from_seconds;
+    if (!enif_get_uint(env, argv[2], &from_seconds)) {
+        return mk_error(env, "bad_from_timestamp");
+    }
+
+    // Get the until timestamp, if present
+    unsigned until_seconds;
+    if (argc == 4) {
+        if (!enif_get_uint(env, argv[3], &until_seconds)) {
+            return mk_error(env, "bad_until_timestamp");
+        }
+    } else {
+        until_seconds = now_seconds;
+    }
+
+    // Sanity check
+    if (from_seconds > until_seconds) {
+        return mk_error(env, "from_before_until");
+    }
+
+    // If from is in the future, we have no data, return []
+    if (from_seconds > now_seconds) {
+        return enif_make_tuple2(env, mk_atom(env, "ok"), enif_make_list(env, 0));
+    }
+
+    // If the until is before our max retention, we have no data
+    const uint32_t oldest_time = now_seconds - wsp->header.max_retention;
+    if (until_seconds < oldest_time) {
+        return enif_make_tuple2(env, mk_atom(env, "ok"), enif_make_list(env, 0));
+    }
+
+    // Bound the from/until timestamps to be within the retention period / now
+    from_seconds = oldest_time > from_seconds ? oldest_time : from_seconds;
+    until_seconds = until_seconds > now_seconds ? now_seconds : until_seconds;
+
+    // The retention time necessary for an archive to have our data
+    const uint32_t diff = now_seconds - from_seconds;
+
+    // Find the most precise archive with retention >= diff
+    struct wsp_archive *best_archive = NULL;
+    for (uint32_t i = 0; i < wsp->header.archive_count; i++) {
+        const uint32_t archive_retention = (
+            wsp->archives[i]->seconds_per_point * wsp->archives[i]->points
+        );
+        if (best_archive == NULL ||
+                (archive_retention >= diff
+                 && wsp->archives[i]->seconds_per_point < best_archive->seconds_per_point)) {
+            best_archive = wsp->archives[i];
+        }
+    }
+
+    // Fetch the data from the archive
+    return erl_wsp_fetch_archive(
+        env, wsp, best_archive, from_seconds, until_seconds);
+}
+
+static ERL_NIF_TERM erl_wsp_fetch_archive(
+    ErlNifEnv *env,
+    struct wsp_file *wsp, struct wsp_archive *archive,
+    const uint32_t from_seconds, const uint32_t until_seconds) {
+
+    // Get the start/end intervals
+    const uint32_t step = archive->seconds_per_point;
+    const uint32_t from_interval = (from_seconds - (from_seconds % step)) + step;
+    uint32_t until_interval = (until_seconds - (until_seconds % step)) + step;
+
+    // If the intervals are the same, capture at least one point
+    if (from_interval == until_interval) {
+        until_interval += step;
+    }
+
+    // Get the offset of the first datum in the archive
+    const uint32_t data_offset = archive->offset;
+    const uint32_t base_interval = COMPOSE_U32(wsp->wsp_data, data_offset);
+
+    // If the base interval is 0, this file has no data - return []
+    if (base_interval == 0) {
+        return enif_make_tuple2(env, mk_atom(env, "ok"), enif_make_list(env, 0));
+    }
+
+    // Calculate the begin/end byte offsets
+    // N.B. that the end offset might be before the begin offset, if the data
+    // has begun to wrap.
+    const uint32_t total_point_bytes = archive->points * WSP_POINT_BYTES;
+
+    const int32_t start_delta = from_interval - base_interval; // can be neg
+    const int32_t start_bucket_offset = start_delta / step;
+    const uint32_t start_byte_offset = data_offset + (
+        start_bucket_offset > 0
+        ? ((start_bucket_offset % archive->points) * WSP_POINT_BYTES)
+        : total_point_bytes - ((start_bucket_offset % archive->points) * WSP_POINT_BYTES)
+    );
+
+    const int32_t end_delta = from_interval - base_interval; // can be neg
+    const int32_t end_bucket_offset = end_delta / step;
+    const uint32_t end_byte_offset = data_offset + (
+        end_bucket_offset > 0
+        ? ((end_bucket_offset % archive->points) * WSP_POINT_BYTES)
+        : total_point_bytes - ((end_bucket_offset % archive->points) * WSP_POINT_BYTES)
+    );
+
+    // Create our result list
+    ERL_NIF_TERM result_arr = enif_make_list(env, 0);
+
+    // Starting at the end offset, read backwards, warping if needed, and load
+    // the data into the result list.
+    uint32_t datum_byte_offset = end_byte_offset;
+    do {
+        // Grab the time for this datapoint
+        uint32_t datum_time = COMPOSE_U32(wsp->wsp_data, datum_byte_offset);
+
+        // If the time is within range, add this point
+        if (datum_time >= from_interval && datum_time <= until_interval) {
+            // Extract the value as well
+            uint64_t value_bytes = COMPOSE_U64(wsp->wsp_data, datum_byte_offset + 4);
+            double datum_value = *(double *) &value_bytes;
+
+            // Create the erlang term for this point and cons it to the list
+            ERL_NIF_TERM erl_datum_value = enif_make_double(env, datum_value);
+            ERL_NIF_TERM erl_datum_time = enif_make_uint(env, datum_time);
+            ERL_NIF_TERM point = enif_make_tuple2(env, erl_datum_value, erl_datum_time);
+            result_arr = enif_make_list_cell(env, point, result_arr);
+        }
+
+        // Move backwards to the next datapoint
+        datum_byte_offset -= WSP_POINT_BYTES;
+        if (datum_byte_offset < data_offset) {
+            // Wrap back around to the end of the archive
+            datum_byte_offset = data_offset + (archive->points - 1) * WSP_POINT_BYTES;
+        }
+    } while (datum_byte_offset != start_byte_offset);
+
+    return enif_make_tuple2(env, mk_atom(env, "ok"), result_arr);
+}
+
 static ERL_NIF_TERM erl_wsp_update(
     ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 ) {
@@ -292,14 +442,12 @@ static ERL_NIF_TERM erl_wsp_update(
     // Read the first point in the archive to get an offset
     const size_t data_offset = best_archive->offset;
     uint32_t base_interval = COMPOSE_U32(wsp->wsp_data, data_offset);
-    DLOG("Base interval: %d\n", base_interval);
 
     const uint32_t interval = value_timestamp - (
         value_timestamp % best_archive->seconds_per_point
     );
 
     if (base_interval == 0) {
-        DLOG("Writing first datum to file at interval %d, offset %d\n", interval, data_offset);
         // Brand new file, write to the first index
         WRITE_U32(wsp->wsp_data, data_offset, interval);
         uint64_t val_u64 = *(uint64_t *) &value;
@@ -320,7 +468,6 @@ static ERL_NIF_TERM erl_wsp_update(
         const uint32_t update_offset = data_offset + (byte_offset % archive_size_bytes);
 
         // At long last, update that offset.
-        DLOG("Writing datum to file at interval %d, offset %d\n", interval, update_offset);
         WRITE_U32(wsp->wsp_data, update_offset, interval);
         uint64_t val_u64 = *(uint64_t *) &value;
         WRITE_U64(wsp->wsp_data, update_offset+4, val_u64);
@@ -408,11 +555,10 @@ static ERL_NIF_TERM erl_wsp_create(
         );
 
         // Increment the file size, since that's why we're even here
-        wsp_file_size += point_count;
+        wsp_file_size += point_count * WSP_POINT_BYTES;
     }
 
     // Now that we know how big to make it, let's start making the wsp file
-    DLOG("Creating file %s\n", safe_filename);
     int wsp_fd = open(safe_filename, O_RDWR | O_CREAT, WSP_PERMS);
     if (wsp_fd < 0) {
         perror("Failed to open file");
@@ -427,7 +573,6 @@ static ERL_NIF_TERM erl_wsp_create(
     }
 
     // MMAP it
-    DLOG("MMAPing file %s\n", safe_filename);
     void *wsp_map = mmap(
         NULL, // System may choose address
         wsp_file_size, // Number of bytes to be initialized from FD

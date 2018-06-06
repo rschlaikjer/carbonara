@@ -3,7 +3,8 @@
     open/1,
     get_storage_schema/1,
     create/2,
-    update/4
+    update/4,
+    fetch/3, fetch/4
 ]).
 
 -on_load(init/0).
@@ -21,6 +22,12 @@ create(_, _) ->
     exit({not_loaded, [{module, ?MODULE}, {line, ?LINE}]}).
 
 update(_Fd, _NowSecs, _Value, _Timestamp) ->
+    exit({not_loaded, [{module, ?MODULE}, {line, ?LINE}]}).
+
+fetch(_Fd, _NowSecs, _From) ->
+    exit({not_loaded, [{module, ?MODULE}, {line, ?LINE}]}).
+
+fetch(_Fd, _NowSecs, _From, _Until) ->
     exit({not_loaded, [{module, ?MODULE}, {line, ?LINE}]}).
 
 init() ->
