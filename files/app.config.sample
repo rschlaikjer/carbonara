@@ -1,0 +1,22 @@
+[
+{carbonara, [
+    {whisper_directory, <<"/tmp/whisper/">>},
+    {listen_port, 2003},
+    {storage_schemas, [
+        {carbon, [
+            {pattern, <<"^carbon\.">>},
+            {retentions, [
+                {{90, day}, {1, minute}}
+            ]}
+        ]},
+        {default, [
+            {pattern, any},
+            {retentions, [
+                {{7, day}, {10, second}},
+                {{21, day}, {1, minute}},
+                {{5, year}, {15, minute}}
+            ]}
+        ]}
+    ]}
+]}
+].
