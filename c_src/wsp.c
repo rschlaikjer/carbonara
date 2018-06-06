@@ -299,15 +299,32 @@ static ERL_NIF_TERM erl_wsp_update(
     );
 
     if (base_interval == 0) {
-        DLOG("Writing first datum to file at interval %d\n", interval);
+        DLOG("Writing first datum to file at interval %d, offset %d\n", interval, data_offset);
         // Brand new file, write to the first index
         WRITE_U32(wsp->wsp_data, data_offset, interval);
         uint64_t val_u64 = *(uint64_t *) &value;
         WRITE_U64(wsp->wsp_data, data_offset+4, val_u64);
     } else {
-        DLOG("Unimplemented %d\n", interval);
-    }
+        // Figure out the offset in time between the first datum and the new
+        const uint32_t time_offset = interval - base_interval;
 
+        // Convert that to an offset in points based on the bucket size
+        const uint32_t point_offset = time_offset / best_archive->seconds_per_point;
+
+        // Figure how many bytes to offset by
+        const uint32_t byte_offset = point_offset * WSP_POINT_BYTES;
+
+        // Get the actual address to update, using the archive offset + wrapping
+        // if we need to
+        const uint32_t archive_size_bytes = best_archive->points * WSP_POINT_BYTES;
+        const uint32_t update_offset = data_offset + (byte_offset % archive_size_bytes);
+
+        // At long last, update that offset.
+        DLOG("Writing datum to file at interval %d, offset %d\n", interval, update_offset);
+        WRITE_U32(wsp->wsp_data, update_offset, interval);
+        uint64_t val_u64 = *(uint64_t *) &value;
+        WRITE_U64(wsp->wsp_data, update_offset+4, val_u64);
+    }
 
     return mk_atom(env, "ok");
 }

@@ -91,6 +91,14 @@ handle_metric_internal(State, Metric, Value, Timestamp) ->
     end.
 
 
-aggregate_metric(State, Value, Timestamp) ->
-    % lager:info("[~p:~p] ~s: ~p", [self(), Timestamp, State#state.metric_name, Value]).
-    ok.
+aggregate_metric(State, Value, Timestamp) when is_integer(Value) ->
+    aggregate_metric(State, float(Value), Timestamp);
+aggregate_metric(State, Value, Timestamp) when is_float(Value) andalso is_integer(Timestamp) ->
+    case wsp:update(State#state.wsp_file, os:system_time(second), Value, Timestamp) of
+        ok -> ok;
+        {error, Reason} ->
+            lager:warning(
+                "Failed to write datum ~p: ~p",
+                [{State#state.metric_name, Value}, Reason]
+            )
+    end.
