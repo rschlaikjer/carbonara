@@ -63,8 +63,8 @@ code_change(OldVsn, State, _Extra) ->
 %% Internal
 
 open_whisper_file(MetricName) ->
-    {WspDir, WspFile} = filename_for_metric(MetricName),
-    ok = filelib:ensure_dir(WspDir),
+    WspFile = filename_for_metric(MetricName),
+    ok = filelib:ensure_dir(WspFile),
     case filelib:is_file(WspFile) of
         true ->
             wsp:open(WspFile);
@@ -78,12 +78,7 @@ open_whisper_file(MetricName) ->
 filename_for_metric(MetricName) ->
     {ok, BasePath} = application:get_env(carbonara, whisper_directory),
     Parts = binary:split(MetricName, <<".">>, [global]),
-    RevParts = lists:reverse(Parts),
-    FileName = hd(RevParts),
-    DirParts = lists:reverse(tl(RevParts)),
-    Dir = filename:join([BasePath|DirParts]),
-    File = filename:join(Dir, FileName),
-    {Dir, File}.
+    filename:join([BasePath|Parts]).
 
 handle_metric_internal(State, Metric, Value, Timestamp) ->
     case State#state.metric_name =:= Metric of

@@ -1,10 +1,17 @@
 -module(wsp).
--export([open/1, create/2]).
+-export([
+    open/1,
+    get_storage_schema/1,
+    create/2
+]).
 
 -on_load(init/0).
 
 -define(APP_NAME, carbonara).
 -define(LIB_NAME, wsp).
+
+get_storage_schema(_) ->
+    exit({not_loaded, [{module, ?MODULE}, {line, ?LINE}]}).
 
 open(_) ->
     exit({not_loaded, [{module, ?MODULE}, {line, ?LINE}]}).
