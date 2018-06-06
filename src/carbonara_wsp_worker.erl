@@ -8,6 +8,9 @@
 %% Metric ingest
 -export([handle_metric/4]).
 
+%% Metric fetching
+-export([fetch_metrics/2, fetch_metrics/3]).
+
 %% gen_server callbacks
 -export([init/1,
          handle_call/3,
@@ -31,6 +34,11 @@ handle_metric(Pid, Metric, Value, Timestamp) when is_list(Metric) ->
 handle_metric(Pid, Metric, Value, Timestamp) when is_binary(Metric) ->
     gen_server:cast(Pid, {metric, Metric, Value, Timestamp}).
 
+fetch_metrics(Pid, Since) ->
+    fetch_metrics(Pid, Since, os:system_time(seconds)).
+fetch_metrics(Pid, Since, Until) ->
+    gen_server:call(Pid, {fetch_metrics, Since, Until}).
+
 init([MetricName]) ->
     {ok, WspFile} = open_whisper_file(MetricName),
     {ok, #state{
@@ -38,6 +46,9 @@ init([MetricName]) ->
         wsp_file=WspFile
     }}.
 
+handle_call({fetch_metrics, Since, Until}, _From, State) ->
+    Resp = wsp:fetch(State#state.wsp_file, os:system_time(seconds), Since, Until),
+    {reply, Resp, State};
 handle_call(Request, _From, State) ->
     lager:info("Unexpected call ~p~n", [Request]),
     {noreply, State}.
