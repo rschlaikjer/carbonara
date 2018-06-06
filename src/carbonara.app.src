@@ -1,0 +1,14 @@
+{application, carbonara,
+ [
+  {description, "Scalable Carbon replacement"},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  sasl,
+                  lager
+                 ]},
+  {mod, { carbonara_app, []}},
+  {env, []}
+ ]}.

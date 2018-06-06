@@ -1,0 +1,8 @@
+_build/
+*.dump
+rebar.lock
+*.beam
+files/app.config
+log/
+*.so
+*.o
