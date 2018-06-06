@@ -40,6 +40,14 @@
     __asm__("movbe %1, %0" \
             : "=m" (data[offset]) : "r" ((uint64_t) value))
 
+#define READ_U64(data, offset, value) \
+    __asm__("movbe %1, %0" \
+            : "=r" ((uint64_t) value) : "m" (data[offset]))
+
+#define READ_U32(data, offset, value) \
+    __asm__("movbe %1, %0" \
+            : "=r" ((uint32_t) value) : "m" (data[offset]))
+
 // Whisper aggregation strategies
 #define WSP_AGG_AVERAGE 1
 #define WSP_AGG_SUM 2

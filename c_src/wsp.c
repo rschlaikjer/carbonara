@@ -93,7 +93,8 @@ int wsp_get_point(struct wsp_file *wsp, uint32_t archive, uint32_t point_offset,
     *timestamp = COMPOSE_U32(wsp->wsp_data, data_offset);
 
     // Parse the value
-    uint64_t value_bytes = COMPOSE_U64(wsp->wsp_data, data_offset + 4);
+    uint64_t value_bytes;
+    READ_U64(wsp->wsp_data, data_offset + 4, value_bytes);
     *value = *(double *) &value_bytes;
 
     return 0;
@@ -359,7 +360,8 @@ static ERL_NIF_TERM erl_wsp_fetch_archive(
         // If the time is within range, add this point
         if (datum_time >= from_interval && datum_time <= until_interval) {
             // Extract the value as well
-            uint64_t value_bytes = COMPOSE_U64(wsp->wsp_data, datum_byte_offset + 4);
+            uint64_t value_bytes;
+            READ_U64(wsp->wsp_data, datum_byte_offset + 4, value_bytes);
             double datum_value = *(double *) &value_bytes;
 
             // Create the erlang term for this point and cons it to the list
