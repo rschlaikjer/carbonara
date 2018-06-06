@@ -363,7 +363,10 @@ static ERL_NIF_TERM erl_wsp_fetch_archive(
             double datum_value = *(double *) &value_bytes;
 
             // Create the erlang term for this point and cons it to the list
-            ERL_NIF_TERM erl_datum_value = enif_make_double(env, datum_value);
+            // Note that we convert NaNs to the atom 'nan', since erlang
+            // doesn't like actual NaN floats
+            ERL_NIF_TERM erl_datum_value = (datum_value != datum_value ?
+                    mk_atom(env, "nan") : enif_make_double(env, datum_value));
             ERL_NIF_TERM erl_datum_time = enif_make_uint(env, datum_time);
             ERL_NIF_TERM point = enif_make_tuple2(env, erl_datum_value, erl_datum_time);
             result_arr = enif_make_list_cell(env, point, result_arr);
