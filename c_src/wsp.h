@@ -32,6 +32,13 @@
     (data[offset+4] << 24) | (data[offset+5] << 16) | \
     (data[offset+6] << 8) | data[offset+7])
 
+// GCC doesn't have a __MOVBE__ define, but haswell supports it
+#ifdef __haswell__
+    #define __MOVBE__
+#endif
+
+#ifdef __MOVBE__
+
 #define WRITE_U32(data, offset, value) \
     __asm__("movbe %1, %0" \
             : "=m" (data[offset]) : "r" ((uint32_t) value))
@@ -47,6 +54,46 @@
 #define READ_U32(data, offset, value) \
     __asm__("movbe %1, %0" \
             : "=r" ((uint32_t) value) : "m" (data[offset]))
+
+#else // ifdef __MOVBE__
+
+#define WRITE_U32(data, offset, value) \
+    data[offset] = (value >> 24) & 0xFF; \
+    data[offset+1] = (value >> 16) & 0xFF; \
+    data[offset+2] = (value >> 8) & 0xFF; \
+    data[offset+3] = value & 0xFF
+
+#define WRITE_U64(data, offset, value) \
+    data[offset] = (value >> 56) & 0xFF; \
+    data[offset+1] = (value >> 48) & 0xFF; \
+    data[offset+2] = (value >> 40) & 0xFF; \
+    data[offset+3] = (value >> 32) & 0xFF; \
+    data[offset+4] = (value >> 24) & 0xFF; \
+    data[offset+5] = (value >> 16) & 0xFF; \
+    data[offset+6] = (value >> 8) & 0xFF; \
+    data[offset+7] = value & 0xFF
+
+#define READ_U64(data, offset, value) \
+    value = ( \
+        ((uint64_t) data[offset]) << 56 | \
+        ((uint64_t) data[offset+1]) << 48 | \
+        ((uint64_t) data[offset+2]) << 40 | \
+        ((uint64_t) data[offset+3]) << 32 | \
+        ((uint64_t) data[offset+4]) << 24 | \
+        ((uint64_t) data[offset+5]) << 16 | \
+        ((uint64_t) data[offset+6]) << 8 | \
+        ((uint64_t) data[offset+7]) \
+    )
+
+#define READ_U32(data, offset, value) \
+    value = ( \
+        ((uint32_t) data[offset]) << 24 | \
+        ((uint32_t) data[offset+1]) << 16 | \
+        ((uint32_t) data[offset+2]) << 8 | \
+        ((uint32_t) data[offset+3]) \
+    )
+
+#endif // ifdef __MOVBE__
 
 // Whisper aggregation strategies
 #define WSP_AGG_AVERAGE 1
