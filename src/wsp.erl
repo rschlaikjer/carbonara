@@ -2,7 +2,8 @@
 -export([
     open/1,
     get_storage_schema/1,
-    create/2
+    create/2,
+    update/4
 ]).
 
 -on_load(init/0).
@@ -17,6 +18,9 @@ open(_) ->
     exit({not_loaded, [{module, ?MODULE}, {line, ?LINE}]}).
 
 create(_, _) ->
+    exit({not_loaded, [{module, ?MODULE}, {line, ?LINE}]}).
+
+update(_Fd, _NowSecs, _Value, _Timestamp) ->
     exit({not_loaded, [{module, ?MODULE}, {line, ?LINE}]}).
 
 init() ->

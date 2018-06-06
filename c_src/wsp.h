@@ -38,6 +38,16 @@
     data[offset+2] = (value >>  8) & 0xFF; \
     data[offset+3] = (value >>  0) & 0xFF
 
+#define WRITE_U64(data, offset, value) \
+    data[offset] = (value >> 56) & 0xFF; \
+    data[offset+1] = (value >> 48) & 0xFF; \
+    data[offset+2] = (value >> 40) & 0xFF; \
+    data[offset+3] = (value >> 32) & 0xFF; \
+    data[offset+4] = (value >> 24) & 0xFF; \
+    data[offset+5] = (value >> 16) & 0xFF; \
+    data[offset+6] = (value >>  8) & 0xFF; \
+    data[offset+7] = (value >>  0) & 0xFF
+
 // Whisper aggregation strategies
 #define WSP_AGG_AVERAGE 1
 #define WSP_AGG_SUM 2
@@ -100,6 +110,9 @@ static ERL_NIF_TERM erl_wsp_create(
 static ERL_NIF_TERM erl_wsp_get_storage_schema(
     ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 );
+static ERL_NIF_TERM erl_wsp_update(
+    ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
+);
 
 // Internal term manipulation
 ERL_NIF_TERM mk_atom(ErlNifEnv* env, const char* atom);
@@ -117,7 +130,8 @@ void unload(ErlNifEnv* env, void* priv_data);
 static ErlNifFunc nif_funcs[] = {
     {"open", 1, erl_wsp_open, 0},
     {"create", 2, erl_wsp_create, 0},
-    {"get_storage_schema", 1, erl_wsp_get_storage_schema, 0}
+    {"get_storage_schema", 1, erl_wsp_get_storage_schema, 0},
+    {"update", 4, erl_wsp_update, 0}
 };
 ERL_NIF_INIT(wsp, nif_funcs, load, NULL, upgrade, unload);
 

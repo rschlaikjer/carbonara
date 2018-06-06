@@ -225,6 +225,93 @@ static ERL_NIF_TERM erl_wsp_get_storage_schema(
     return enif_make_tuple2(env, mk_atom(env, "ok"), result);
 }
 
+static ERL_NIF_TERM erl_wsp_update(
+    ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
+) {
+    // We expect 4 args:
+    // - Our stashed wsp file
+    // - The current time in seconds
+    // - The value to store
+    // - The value timestamp
+    if(argc != 4) {
+        return enif_make_badarg(env);
+    }
+
+    // Extract the stashed wsp_file pointer
+    struct priv_data *priv_data = enif_priv_data(env);
+    struct wsp_file** erl_wsp_ptr;
+    if (!enif_get_resource(env, argv[0],
+                           priv_data->wsp_file_resource,
+                           ((void*) (&erl_wsp_ptr)))) {
+        return mk_error(env, "bad_internal_state");
+    }
+    struct wsp_file* wsp = *erl_wsp_ptr;
+
+    // Get the current timestamp
+    unsigned now_seconds;
+    if (!enif_get_uint(env, argv[1], &now_seconds)) {
+        return mk_error(env, "bad_now_timestamp");
+    }
+
+    // Get the value
+    double value;
+    if (!enif_get_double(env, argv[2], &value)) {
+        return mk_error(env, "bad_value");
+    }
+
+    // Get the value timestamp
+    unsigned value_timestamp;
+    if (!enif_get_uint(env, argv[3], &value_timestamp)) {
+        return mk_error(env, "bad_value_timestamp");
+    }
+
+    // Check the diff on the ts is within archive range
+    const unsigned diff = now_seconds - value_timestamp;
+    if (!(diff >= 0 && diff < wsp->header.max_retention)) {
+        return mk_error(env, "diff_outside_archive_range");
+    }
+
+    // Get the highest precision archive that can fit this datum
+    struct wsp_archive *best_archive = NULL;
+    for (uint32_t i = 0; i < wsp->header.archive_count; i++) {
+        const uint32_t archive_retention = (
+            wsp->archives[i]->seconds_per_point * wsp->archives[i]->points
+        );
+        if (best_archive == NULL ||
+                (diff < archive_retention
+                 && wsp->archives[i]->seconds_per_point < best_archive->seconds_per_point)) {
+            best_archive = wsp->archives[i];
+        }
+    }
+
+    // If we didn't get a good archive, something is up
+    if (best_archive == NULL) {
+        return mk_error(env, "no_suitable_archives");
+    }
+
+    // Read the first point in the archive to get an offset
+    const size_t data_offset = best_archive->offset;
+    uint32_t base_interval = COMPOSE_U32(wsp->wsp_data, data_offset);
+    DLOG("Base interval: %d\n", base_interval);
+
+    const uint32_t interval = value_timestamp - (
+        value_timestamp % best_archive->seconds_per_point
+    );
+
+    if (base_interval == 0) {
+        DLOG("Writing first datum to file at interval %d\n", interval);
+        // Brand new file, write to the first index
+        WRITE_U32(wsp->wsp_data, data_offset, interval);
+        uint64_t val_u64 = *(uint64_t *) &value;
+        WRITE_U64(wsp->wsp_data, data_offset+4, val_u64);
+    } else {
+        DLOG("Unimplemented %d\n", interval);
+    }
+
+
+    return mk_atom(env, "ok");
+}
+
 static ERL_NIF_TERM erl_wsp_create(
     ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]
 ) {
