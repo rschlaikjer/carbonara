@@ -261,6 +261,7 @@ static ERL_NIF_TERM erl_wsp_create(
 
     // Validate the schemas & count up the total needed file size
     size_t wsp_file_size = WSP_HEADER_BYTES;
+    uint32_t wsp_max_retention = 0;
     ERL_NIF_TERM schema_traverse = argv[1];
     for (unsigned i = 0; i < storage_schema_count; i++) {
         // Each schema needs a header
@@ -288,6 +289,11 @@ static ERL_NIF_TERM erl_wsp_create(
         }
         if (!enif_get_uint(env, arr[1], &seconds_per_bucket)) {
             return mk_error(env, "bad_bucketing");
+        }
+
+        // Update the max duration val
+        if (duration > wsp_max_retention) {
+            wsp_max_retention = duration;
         }
 
         // Number of points = duration / seconds per bucket
@@ -340,7 +346,7 @@ static ERL_NIF_TERM erl_wsp_create(
 
     // Set & write the file header
     wsp->header.aggregation_type = WSP_AGG_AVERAGE;
-    wsp->header.max_retention = 0; // TODO fix
+    wsp->header.max_retention = wsp_max_retention;
     wsp->header.xff = 0.5;
     wsp->header.archive_count = storage_schema_count;
     write_header(wsp_map, &wsp->header);
