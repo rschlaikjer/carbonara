@@ -720,7 +720,8 @@ void unload(UNUSED ErlNifEnv* env, void* priv_data){
 }
 
 void erl_wsp_file_destructor(ErlNifEnv* env, void* obj) {
-    fprintf(stderr, "Garbage collecting obj %p\n", obj);
+    struct wsp_file **erl_wsp_ptr = obj;
+    wsp_close(*erl_wsp_ptr);
 }
 
 ERL_NIF_TERM mk_atom(ErlNifEnv* env, const char* atom) {
