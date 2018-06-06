@@ -291,6 +291,11 @@ static ERL_NIF_TERM erl_wsp_fetch(
         }
     }
 
+    // If we can't figure out what archive to use, that's a problem
+    if (best_archive == NULL) {
+        return mk_error(env, "no_applicable_archives");
+    }
+
     // Fetch the data from the archive
     return erl_wsp_fetch_archive(
         env, wsp, best_archive, from_seconds, until_seconds);
