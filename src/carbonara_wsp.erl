@@ -17,7 +17,8 @@
          code_change/3]).
 
 -record(state, {
-    process_ets
+    metric_ets,  % Pid -> Metric
+    process_ets  % Metric -> Pid
 }).
 
 start_link() ->
@@ -27,8 +28,12 @@ get_handler(Metric) ->
     gen_server:call(?MODULE, {get_handler, Metric}).
 
 init([]) ->
+    MetricEts = ets:new(wsp_metrics, [set]),
     ProcessEts = ets:new(wsp_processes, [set]),
-    {ok, #state{process_ets=ProcessEts}}.
+    {ok, #state{
+        metric_ets=MetricEts,
+        process_ets=ProcessEts
+    }}.
 
 handle_call({get_handler, Metric}, _From, State) ->
     {reply, get_wsp_handler(State, Metric), State};
@@ -40,6 +45,17 @@ handle_cast(Request, State) ->
     lager:info("Unexpected cast ~p~n", [Request]),
     {noreply, State}.
 
+handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
+    % Get the metric name for this pid
+    case ets:lookup(State#state.metric_ets, Pid) of
+        [] ->
+            lager:info("Unexpected DOWN status for pid ~p", [Pid]);
+        [{_, MetricName}|_] ->
+            % Delete the metric & pid mappings for the downed worker
+            ets:delete(State#state.metric_ets, Pid),
+            ets:delete(State#state.process_ets, MetricName)
+    end,
+    {noreply, State};
 handle_info(Info, State) ->
     lager:info("Unexpected info ~p~n", [Info]),
     {noreply, State}.
@@ -58,6 +74,8 @@ get_wsp_handler(State, MetricName) ->
         [] ->
             % No handler for this metric - need to create
             {ok, Pid} = carbonara_wsp_worker_sup:start_child(MetricName),
+            monitor(process, Pid),
+            ets:insert(State#state.metric_ets, {Pid, MetricName}),
             ets:insert(State#state.process_ets, {MetricName, Pid}),
             {ok, Pid};
         [{_, Pid}|_] ->
