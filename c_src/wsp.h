@@ -16,6 +16,8 @@
 
 #include "erl_nif.h"
 
+#define GROUND 0
+
 #define WSP_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP)
 
 #define WSP_HEADER_BYTES 16

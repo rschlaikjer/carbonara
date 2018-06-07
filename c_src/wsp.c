@@ -137,13 +137,13 @@ static ERL_NIF_TERM erl_wsp_open(
     }
 
     // Ensure that the arg is a binary
-    if (!enif_is_binary(env, argv[0])) {
+    if (!enif_is_binary(env, argv[GROUND])) {
         return mk_error(env, "not_a_binary");
     }
 
     // Copy the binary metadata into the structs
     ErlNifBinary filename_bin;
-    enif_inspect_binary(env, argv[0], &filename_bin);
+    enif_inspect_binary(env, argv[GROUND], &filename_bin);
 
     // Ensure that the filename has a null terminator
     char safe_filename[filename_bin.size + 1];
@@ -189,7 +189,7 @@ static ERL_NIF_TERM erl_wsp_get_storage_schema(
     // Extract the stashed wsp_file pointer
     struct priv_data *priv_data = enif_priv_data(env);
     struct wsp_file** erl_wsp_ptr;
-    if (!enif_get_resource(env, argv[0],
+    if (!enif_get_resource(env, argv[GROUND],
                            priv_data->wsp_file_resource,
                            ((void*) (&erl_wsp_ptr)))) {
         return mk_error(env, "bad_internal_state");
@@ -227,7 +227,7 @@ static ERL_NIF_TERM erl_wsp_fetch(
     // Extract the stashed wsp_file pointer
     struct priv_data *priv_data = enif_priv_data(env);
     struct wsp_file** erl_wsp_ptr;
-    if (!enif_get_resource(env, argv[0],
+    if (!enif_get_resource(env, argv[GROUND],
                            priv_data->wsp_file_resource,
                            ((void*) (&erl_wsp_ptr)))) {
         return mk_error(env, "bad_internal_state");
@@ -400,7 +400,7 @@ static ERL_NIF_TERM erl_wsp_update(
     // Extract the stashed wsp_file pointer
     struct priv_data *priv_data = enif_priv_data(env);
     struct wsp_file** erl_wsp_ptr;
-    if (!enif_get_resource(env, argv[0],
+    if (!enif_get_resource(env, argv[GROUND],
                            priv_data->wsp_file_resource,
                            ((void*) (&erl_wsp_ptr)))) {
         return mk_error(env, "bad_internal_state");
@@ -495,13 +495,13 @@ static ERL_NIF_TERM erl_wsp_create(
     }
 
     // Ensure that the first arg is a binary
-    if (!enif_is_binary(env, argv[0])) {
+    if (!enif_is_binary(env, argv[GROUND])) {
         return mk_error(env, "not_a_binary");
     }
 
     // Copy the binary metadata into the structs
     ErlNifBinary filename_bin;
-    enif_inspect_binary(env, argv[0], &filename_bin);
+    enif_inspect_binary(env, argv[GROUND], &filename_bin);
 
     // Ensure that the filename has a null terminator
     char safe_filename[filename_bin.size + 1];
@@ -545,7 +545,7 @@ static ERL_NIF_TERM erl_wsp_create(
         // Get the two uints out
         unsigned duration;
         unsigned seconds_per_bucket;
-        if (!enif_get_uint(env, arr[0], &duration)) {
+        if (!enif_get_uint(env, arr[GROUND], &duration)) {
             return mk_error(env, "bad_duration");
         }
         if (!enif_get_uint(env, arr[1], &seconds_per_bucket)) {
@@ -643,7 +643,7 @@ static ERL_NIF_TERM erl_wsp_create(
         // Get the two uints
         unsigned duration;
         unsigned seconds_per_bucket;
-        enif_get_uint(env, arr[0], &duration);
+        enif_get_uint(env, arr[GROUND], &duration);
         enif_get_uint(env, arr[1], &seconds_per_bucket);
 
         // Number of points = duration / seconds per bucket
