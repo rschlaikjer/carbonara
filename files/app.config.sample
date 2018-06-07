@@ -2,6 +2,7 @@
 {carbonara, [
     {whisper_directory, <<"/tmp/whisper/">>},
     {listen_port, 2003},
+    {api_port, 8888},
     {storage_schemas, [
         {carbon, [
             {pattern, <<"^carbon\.">>},

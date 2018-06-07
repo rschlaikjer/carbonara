@@ -7,7 +7,8 @@
                   kernel,
                   stdlib,
                   sasl,
-                  lager
+                  lager,
+                  cowboy
                  ]},
   {mod, { carbonara_app, []}},
   {env, []}
