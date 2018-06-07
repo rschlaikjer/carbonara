@@ -25,6 +25,8 @@ handle(Req, State) ->
     {ok, Req2} = handle_path(Req1, Path),
     {ok, Req2, State}.
 
+handle_path(Req, <<"/render">>) ->
+    render(Req);
 handle_path(Req, <<"/metrics/find">>) ->
     find_metrics(Req);
 handle_path(Req, Path) ->
@@ -52,4 +54,21 @@ find_metrics(Req1) ->
     Query = proplists:get_value(<<"query">>, QueryParams, <<"*">>),
     {ok, Metrics} = carbonara_wsp:find_metrics(Query),
     Json = jsx:encode(Metrics),
+    write_reply(Req2, Json).
+
+render(Req1) ->
+    % Return a list of [{target, MetricName}, {datapoints, [[value, time]...]}]
+    {ok, BodyParams, Req2} = cowboy_req:body_qs(Req1),
+    Target = proplists:get_value(<<"target">>, BodyParams),
+    From = proplists:get_value(<<"from">>, BodyParams),
+    Until = proplists:get_value(<<"until">>, BodyParams),
+    Format = proplists:get_value(<<"format">>, BodyParams),
+    MaxDataPoints = proplists:get_value(<<"maxDataPoints">>, BodyParams),
+
+    {ok, Metrics} = carbonara_wsp:metrics_for_query(Target),
+    {ok, Stats} = carbonara_wsp:parallel_fetch_stats(Metrics, 0),
+    Response = [
+        [{target, Stat}, {datapoints, [[V, T] || {V, T} <- Data]}] || {Stat, Data} <- Stats
+    ],
+    Json = jsx:encode(Response),
     write_reply(Req2, Json).

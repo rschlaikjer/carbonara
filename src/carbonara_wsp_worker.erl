@@ -9,7 +9,10 @@
 -export([handle_metric/4]).
 
 %% Metric fetching
--export([fetch_metrics/2, fetch_metrics/3]).
+-export([
+    fetch_metrics/2, fetch_metrics/3,
+    fetch_metrics_async/2, fetch_metrics_async/3
+]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -39,6 +42,11 @@ fetch_metrics(Pid, Since) ->
 fetch_metrics(Pid, Since, Until) ->
     gen_server:call(Pid, {fetch_metrics, Since, Until}).
 
+fetch_metrics_async(Pid, Since) ->
+    fetch_metrics_async(Pid, Since, os:system_time(seconds)).
+fetch_metrics_async(Pid, Since, Until) ->
+    gen_server:call(Pid, {fetch_metrics_async, Since, Until}).
+
 init([MetricName]) ->
     {ok, WspFile} = open_whisper_file(MetricName),
     {ok, #state{
@@ -49,10 +57,17 @@ init([MetricName]) ->
 handle_call({fetch_metrics, Since, Until}, _From, State) ->
     Resp = wsp:fetch(State#state.wsp_file, os:system_time(seconds), Since, Until),
     {reply, Resp, State};
+handle_call({fetch_metrics_async, Since, Until}, From, State) ->
+    Ref = make_ref(),
+    gen_server:cast(self(), {fetch_metrics_async, From, Ref, Since, Until}),
+    {reply, {ok, Ref}, State};
 handle_call(Request, _From, State) ->
     lager:info("Unexpected call ~p~n", [Request]),
     {noreply, State}.
 
+handle_cast({fetch_metrics_async, {From, _}, Ref, Since, Until}, State) ->
+    handle_async_fetch(State, From, Ref, Since, Until),
+    {noreply, State};
 handle_cast({metric, M, V, T}, State) ->
     handle_metric_internal(State, M, V, T),
     {noreply, State};
@@ -113,3 +128,13 @@ aggregate_metric(State, Value, Timestamp) when is_float(Value) andalso is_intege
                 [{State#state.metric_name, Value}, Reason]
             )
     end.
+
+handle_async_fetch(State, From, Ref, Since, Until) ->
+    Stat = State#state.metric_name,
+    {ok, Metrics} = wsp:fetch(
+        State#state.wsp_file,
+        os:system_time(seconds),
+        Since,
+        Until
+    ),
+    From ! {wsp_metrics, Ref, Stat, Metrics}.

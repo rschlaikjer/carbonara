@@ -8,7 +8,9 @@
 %% Public api
 -export([
     get_handler/1,
-    find_metrics/1
+    find_metrics/1,
+    metrics_for_query/1,
+    parallel_fetch_stats/2
 ]).
 
 %% gen_server callbacks
@@ -34,6 +36,9 @@ get_handler(Metric) ->
 find_metrics(Query) when is_binary(Query) ->
     gen_server:call(?MODULE, {find_metrics, Query}).
 
+metrics_for_query(Query) when is_binary(Query) ->
+    gen_server:call(?MODULE, {metrics_for_query, Query}).
+
 init([]) ->
     MetricEts = ets:new(wsp_metrics, [set]),
     ProcessEts = ets:new(wsp_processes, [set]),
@@ -44,6 +49,8 @@ init([]) ->
         all_metric_ets=AllMetricsEts
     }}.
 
+handle_call({metrics_for_query, Query}, _From, State) ->
+    {reply, metrics_for_query_impl(State, Query), State};
 handle_call({find_metrics, Query}, _From, State) ->
     {reply, find_metrics_impl(State, Query), State};
 handle_call({get_handler, Metric}, _From, State) ->
@@ -103,9 +110,34 @@ store_metric_name(State, Metric) ->
 convert_regex(R) ->
     binary:replace(R, <<"*">>, <<"\\w*">>, [global]).
 
-find_metrics_impl(State, Query) when is_binary(Query) ->
+metric_names_for_query_list(State, RegexList) ->
+    ets:foldl(
+        fun({Metric, Parts}, Acc) ->
+            case is_regex_prefix(RegexList, Parts) of
+                false -> Acc;
+                true -> [Metric|Acc]
+            end
+        end,
+        [],
+        State#state.all_metric_ets
+    ).
+
+metrics_for_query_impl(State, Query) when is_binary(Query) ->
     RegexList = binary:split(Query, <<".">>, [global]),
-    Metrics = ets:foldl(
+    Names = ets:foldl(
+        fun({Metric, Parts}, Acc) ->
+            case is_regex_match(RegexList, Parts) of
+                false -> Acc;
+                true -> [Metric|Acc]
+            end
+        end,
+        [],
+        State#state.all_metric_ets
+    ),
+    {ok, Names}.
+
+metric_lists_for_query_list(State, RegexList) ->
+    ets:foldl(
         fun({_Metric, Parts}, Acc) ->
             case is_regex_prefix(RegexList, Parts) of
                 false -> Acc;
@@ -114,7 +146,11 @@ find_metrics_impl(State, Query) when is_binary(Query) ->
         end,
         [],
         State#state.all_metric_ets
-    ),
+    ).
+
+find_metrics_impl(State, Query) when is_binary(Query) ->
+    RegexList = binary:split(Query, <<".">>, [global]),
+    Metrics = metric_lists_for_query_list(State, RegexList),
     Records = [
         record_for_query(RegexList, Metric) || Metric <- Metrics
     ],
@@ -150,6 +186,16 @@ record_for_query(Query, Metric) ->
         {allowChildren, AllowChildren}
     ].
 
+is_regex_match([], []) -> true; % Fully equal
+is_regex_match([], _) -> false;  % Unmatched
+is_regex_match(_, []) -> false; % Unmatches
+is_regex_match([H|AT], [H|BT]) -> is_regex_match(AT, BT);
+is_regex_match([Rex|AT], [H|BT]) ->
+    case re:run(H, convert_regex(Rex)) of
+        nomatch -> false;
+        _ -> is_regex_match(AT, BT)
+    end.
+
 is_regex_prefix([], []) -> true; % Fully equal
 is_regex_prefix([], _) -> true;  % Regex prefix is shorter
 is_regex_prefix(_, []) -> false; % Regex prefix is longer
@@ -158,4 +204,38 @@ is_regex_prefix([Rex|AT], [H|BT]) ->
     case re:run(H, convert_regex(Rex)) of
         nomatch -> false;
         _ -> is_regex_prefix(AT, BT)
+    end.
+
+parallel_fetch_stats(Stats, Since) ->
+    % Request stats from each WSP handler
+    {Refs, Pids} = lists:foldl(
+        fun(Stat, {Refs, Pids}) ->
+            {ok, Pid} = carbonara_wsp:get_handler(Stat),
+            erlang:monitor(process, Pid),
+            {ok, Ref} = carbonara_wsp_worker:fetch_metrics_async(Pid, Since),
+            _Acc1 = {
+                maps:put(Ref, Stat, Refs),
+                maps:put(Pid, Ref, Pids)
+            }
+        end,
+        {#{}, #{}},
+        Stats
+    ),
+    await_parallel_stats(Refs, Pids, []).
+
+await_parallel_stats(Refs, Pids, Acc) ->
+    case maps:size(Refs) of
+        0 -> {ok, Acc};
+        _ ->
+            receive
+                {'DOWN', _Ref, process, Pid, _Reason} ->
+                    % Whisper handler went down - we will never hear back
+                    % Remove the ref, we will just not return data for them.
+                    Ref = maps:get(Pid, Pids),
+                    Refs1 = maps:remove(Ref, Refs),
+                    await_parallel_stats(Refs1, Pids, Acc);
+                {wsp_metrics, Ref, Stat, Metrics} ->
+                    Refs1 = maps:remove(Ref, Refs),
+                    await_parallel_stats(Refs1, Pids, [{Stat, Metrics}|Acc])
+            end
     end.
